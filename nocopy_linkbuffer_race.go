@@ -645,14 +645,14 @@ func newLinkBufferNode(size int) *linkBufferNode {
 	node.buf = mcache.Malloc(0, size)
 	return node
 }
-
-var linkedPool = sync.Pool{
-	New: func() interface{} {
-		return &linkBufferNode{
-			refer: 1, // 自带 1 引用
-		}
-	},
-}
+//
+// var linkedPool = sync.Pool{
+// 	New: func() interface{} {
+// 		return &linkBufferNode{
+// 			refer: 1, // 自带 1 引用
+// 		}
+// 	},
+// }
 
 type linkBufferNode struct {
 	buf      []byte          // buffer

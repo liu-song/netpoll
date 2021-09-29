@@ -20,10 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
 	"sync/atomic"
 	"unsafe"
-
+	
 	"github.com/bytedance/gopkg/lang/mcache"
 )
 
@@ -608,14 +607,14 @@ func newLinkBufferNode(size int) *linkBufferNode {
 	node.buf = malloc(0, size)
 	return node
 }
-
-var linkedPool = sync.Pool{
-	New: func() interface{} {
-		return &linkBufferNode{
-			refer: 1, // 自带 1 引用
-		}
-	},
-}
+//
+// var linkedPool = sync.Pool{
+// 	New: func() interface{} {
+// 		return &linkBufferNode{
+// 			refer: 1, // 自带 1 引用
+// 		}
+// 	},
+// }
 
 type linkBufferNode struct {
 	buf      []byte          // buffer
@@ -625,6 +624,7 @@ type linkBufferNode struct {
 	readonly bool            // read-only node, introduced by Refer, WriteString, WriteBinary, etc., default false
 	origin   *linkBufferNode // the root node of the extends
 	next     *linkBufferNode // the next node of the linked buffer
+	next2     *linkBufferNode // the next node of the linked buffer
 }
 
 func (node *linkBufferNode) Len() (l int) {

@@ -334,9 +334,9 @@ func (c *connection) waitRead(n int) (err error) {
 	}
 	atomic.StoreInt32(&c.waitReadSize, int32(leftover))
 	defer atomic.StoreInt32(&c.waitReadSize, 0)
-	if c.readTimeout > 0 {
-		return c.waitReadWithTimeout(n)
-	}
+	//if c.readTimeout > 0 {
+	//	return c.waitReadWithTimeout(n)
+	//}
 	// wait full n
 	for c.inputBuffer.Len() < n {
 		if c.IsActive() {

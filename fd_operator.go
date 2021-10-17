@@ -20,22 +20,31 @@ import (
 )
 
 // FDOperator is a collection of operations on file descriptors.
+
+//  FDO  //  链表上是文件描述操作对应的集合。
+//  链表操作的环节
 type FDOperator struct {
 	// FD is file descriptor, poll will bind when register.
 	FD int
 
 	// The FDOperator provides three operations of reading, writing, and hanging.
 	// The poll actively fire the FDOperator when fd changes, no check the return value of FDOperator.
+
+	// FD 的状态描述
 	OnRead  func(p Poll) error
 	OnWrite func(p Poll) error
-	OnHup   func(p Poll) error
+	OnHup   func(p Poll) error //  读写都关闭的状态，hang 住
 
 	// The following is the required fn, which must exist when used, or directly panic.
 	// Fns are only called by the poll when handles connection events.
+
+	// Fn 中所代表的意思？
 	Inputs   func(vs [][]byte) (rs [][]byte)
 	InputAck func(n int) (err error)
 
 	// Outputs will locked if len(rs) > 0, which need unlocked by OutputAck.
+
+	//
 	Outputs   func(vs [][]byte) (rs [][]byte, supportZeroCopy bool)
 	OutputAck func(n int) (err error)
 
@@ -44,11 +53,11 @@ type FDOperator struct {
 
 	// private, used by operatorCache
 	next  *FDOperator
-	state int32 // CAS: 0(unused) 1(inuse) 2(do-done)
+	state int32 // CAS: 0(unused) 1(inuse) 2(do-done)      //  这个原子操作对应了三种状态
 }
 
 func (op *FDOperator) Control(event PollEvent) error {
-	return op.poll.Control(op, event)
+	return op.poll.Control(op, event) //  将这个操作符封装进去了
 }
 
 func (op *FDOperator) do() (can bool) {

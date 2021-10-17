@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build race
 // +build race
 
 package netpoll
 
 import (
-	"log"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
 )
 
+//  对没有竞争场景下的模拟操作
 // mock no race poll
 func openPoll() Poll {
 	return openDefaultPoll()
@@ -47,11 +48,12 @@ func openDefaultPoll() *defaultPoll {
 	return &poll
 }
 
+//  一个epoll 在实现上具备的一些参数
 type defaultPoll struct {
 	pollArgs
 	fd      int    // epoll fd
 	wfd     int    // wake epoll wait
-	buf     []byte // read wfd trigger msg
+	buf     []byte // read wfd trigger msg     //  todo  这个msg 可以打印出来看一下
 	trigger uint32 // trigger flag
 	m       sync.Map
 }
@@ -76,6 +78,8 @@ func (a *pollArgs) reset(size, caps int) {
 func (p *defaultPoll) Wait() (err error) {
 	// init
 	var caps, msec, n = barriercap, -1, 0
+
+	//  caps 是个常量 32 ？
 	p.reset(128, caps)
 	// wait
 	for {
@@ -110,12 +114,12 @@ func (p *defaultPoll) handler(events []syscall.EpollEvent) (closed bool) {
 		// trigger or exit gracefully
 		if operator.FD == p.wfd {
 			// must clean trigger first
-			syscall.Read(p.wfd, p.buf)
+			syscall.Read(p.wfd, p.buf) //  todo  对应这里面的参数
 			atomic.StoreUint32(&p.trigger, 0)
 			// if closed & exit
 			if p.buf[0] > 0 {
 				syscall.Close(p.wfd)
-				syscall.Close(p.fd)
+				syscall.Close(p.fd) //  为什么也需要关闭这个 FD
 				return true
 			}
 			continue
@@ -123,55 +127,49 @@ func (p *defaultPoll) handler(events []syscall.EpollEvent) (closed bool) {
 		if !operator.do() {
 			continue
 		}
-
-		evt := events[i].Events
 		switch {
 		// check hup first
-		case evt&(syscall.EPOLLHUP|syscall.EPOLLRDHUP) != 0:
+		// todo hup 的状态需要确定一下。。。
+		case events[i].Events&(syscall.EPOLLHUP|syscall.EPOLLRDHUP) != 0:
 			hups = append(hups, operator)
-		case evt&syscall.EPOLLERR != 0:
+		case events[i].Events&syscall.EPOLLERR != 0:
 			// Under block-zerocopy, the kernel may give an error callback, which is not a real error, just an EAGAIN.
 			// So here we need to check this error, if it is EAGAIN then do nothing, otherwise still mark as hup.
 			if _, _, _, _, err := syscall.Recvmsg(operator.FD, nil, nil, syscall.MSG_ERRQUEUE); err != syscall.EAGAIN {
 				hups = append(hups, operator)
 			}
-		default:
-			if evt&syscall.EPOLLIN != 0 {
-				if operator.OnRead != nil {
-					// for non-connection
-					operator.OnRead(p)
-				} else {
-					// for connection
-					var bs = operator.Inputs(p.barriers[i].bs)
-					if len(bs) > 0 {
-						var n, err = readv(operator.FD, bs, p.barriers[i].ivs)
-						operator.InputAck(n)
-						if err != nil && err != syscall.EAGAIN && err != syscall.EINTR {
-							log.Printf("readv(fd=%d) failed: %s", operator.FD, err.Error())
-							hups = append(hups, operator)
-							break
-						}
-					}
-				}
+		case events[i].Events&syscall.EPOLLIN != 0:
+			// for non-connection
+			if operator.OnRead != nil {
+				operator.OnRead(p)
+				break
 			}
-			if evt&syscall.EPOLLOUT != 0 {
-				if operator.OnWrite != nil {
-					// for non-connection
-					operator.OnWrite(p)
-				} else {
-					// for connection
-					var bs, supportZeroCopy = operator.Outputs(p.barriers[i].bs)
-					if len(bs) > 0 {
-						// TODO: Let the upper layer pass in whether to use ZeroCopy.
-						var n, err = sendmsg(operator.FD, bs, p.barriers[i].ivs, false && supportZeroCopy)
-						operator.OutputAck(n)
-						if err != nil && err != syscall.EAGAIN {
-							log.Printf("sendmsg(fd=%d) failed: %s", operator.FD, err.Error())
-							hups = append(hups, operator)
-							break
-						}
-					}
-				}
+			// only for connection
+			var bs = operator.Inputs(p.barriers[i].bs)
+			if len(bs) == 0 {
+				break
+			}
+			var n, err = readv(operator.FD, bs, p.barriers[i].ivs)
+			operator.InputAck(n)
+			if err != nil && err != syscall.EAGAIN && err != syscall.EINTR {
+				hups = append(hups, operator)
+			}
+		case events[i].Events&syscall.EPOLLOUT != 0:
+			// for non-connection
+			if operator.OnWrite != nil {
+				operator.OnWrite(p)
+				break
+			}
+			// only for connection
+			var bs, supportZeroCopy = operator.Outputs(p.barriers[i].bs)
+			if len(bs) == 0 {
+				break
+			}
+			// TODO: Let the upper layer pass in whether to use ZeroCopy.
+			var n, err = sendmsg(operator.FD, bs, p.barriers[i].ivs, false && supportZeroCopy)
+			operator.OutputAck(n)
+			if err != nil && err != syscall.EAGAIN {
+				hups = append(hups, operator)
 			}
 		}
 		operator.done()

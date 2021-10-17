@@ -31,22 +31,10 @@ func setLoadBalance(lb LoadBalance) error {
 var pollmanager *manager
 
 func init() {
+	var loops = runtime.GOMAXPROCS(0)/20 + 1
 	pollmanager = &manager{}
 	pollmanager.SetLoadBalance(RoundRobin)
-	pollmanager.SetNumLoops(defaultNumLoops())
-}
-
-func defaultNumLoops() int {
-	procs := runtime.GOMAXPROCS(0)
-	loops := 1
-	// Loops produce events that handlers consume,
-	// so the producer should be faster than consumer otherwise it will have a bottleneck.
-	// But there is no universal option that could be appropriate for any use cases,
-	// plz use `SetNumLoops` if you do know what you want.
-	if procs > 4 {
-		loops = procs
-	}
-	return loops
+	pollmanager.SetNumLoops(loops)
 }
 
 // LoadBalance is used to do load balancing among multiple pollers.
@@ -63,7 +51,7 @@ func (m *manager) SetNumLoops(numLoops int) error {
 		return fmt.Errorf("set invaild numLoops[%d]", numLoops)
 	}
 	// if less than, reset all; else new the delta.
-	if numLoops < m.NumLoops {
+	if numLoops < m.NumLoops { //  什么时候会少于这个状态呢
 		m.NumLoops = numLoops
 		return m.Reset()
 	}
@@ -97,8 +85,9 @@ func (m *manager) Run() error {
 	for idx := len(m.polls); idx < m.NumLoops; idx++ {
 		var poll = openPoll()
 		m.polls = append(m.polls, poll)
-		go poll.Wait()
+		go poll.Wait() //
 	}
+	//  在唤醒run 之间 ，必须先 LoadBalance   otherwise 是否则的意思
 	// LoadBalance must be set before calling Run, otherwise it will panic.
 	m.balance.Rebalance(m.polls)
 	return nil

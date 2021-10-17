@@ -31,6 +31,7 @@ func freeop(op *FDOperator) {
 func init() {
 	opcache = &operatorCache{
 		// cache: make(map[int][]byte),
+		//  //  通过指针实现的0 GC操作  性质其实是相同的
 		cache: make([]*FDOperator, 0, 1024),
 	}
 	runtime.KeepAlive(opcache)
@@ -44,6 +45,7 @@ type operatorCache struct {
 	cache  []*FDOperator
 }
 
+// 分配链表的内存
 func (c *operatorCache) alloc() *FDOperator {
 	c.lock()
 	if c.first == nil {
@@ -52,13 +54,15 @@ func (c *operatorCache) alloc() *FDOperator {
 		if n == 0 {
 			n = 1
 		}
+
+		//  必须在非GC内存中，因为可以引用( 是如何被分配到非GC 内存当中的？？？)
 		// Must be in non-GC memory because can be referenced
 		// only from epoll/kqueue internals.
 		for i := uintptr(0); i < n; i++ {
 			pd := &FDOperator{}
 			c.cache = append(c.cache, pd)
 			pd.next = c.first
-			c.first = pd
+			c.first = pd //  采用链表的头插 法
 		}
 	}
 	op := c.first
@@ -67,12 +71,12 @@ func (c *operatorCache) alloc() *FDOperator {
 	return op
 }
 
+// 对申请的链表进行释放操作
 func (c *operatorCache) free(op *FDOperator) {
 	if !op.isUnused() {
 		panic("op is using now")
 	}
 	op.reset()
-
 	c.lock()
 	op.next = c.first
 	c.first = op
@@ -81,7 +85,7 @@ func (c *operatorCache) free(op *FDOperator) {
 
 func (c *operatorCache) lock() {
 	for !atomic.CompareAndSwapInt32(&c.locked, 0, 1) {
-		runtime.Gosched()
+		runtime.Gosched() // 没有锁上让出当前P 进行重新调度
 	}
 }
 

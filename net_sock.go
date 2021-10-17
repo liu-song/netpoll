@@ -5,6 +5,7 @@
 // This file may have been modified by CloudWeGo authors. (“CloudWeGo Modifications”).
 // All CloudWeGo Modifications are Copyright 2021 CloudWeGo authors.
 
+//go:build aix || darwin || dragonfly || freebsd || linux || nacl || netbsd || openbsd || solaris || windows
 // +build aix darwin dragonfly freebsd linux nacl netbsd openbsd solaris windows
 
 package netpoll
@@ -123,6 +124,7 @@ func socket(ctx context.Context, net string, family, sotype, proto int, ipv6only
 	return netfd, nil
 }
 
+//  对链接地址的封装
 // sockaddrToAddr returns a go/net friendly address
 func sockaddrToAddr(sa syscall.Sockaddr) net.Addr {
 	var a net.Addr

@@ -46,12 +46,14 @@ func newPollDesc(fd int) *pollDesc {
 type pollDesc struct {
 	operator *FDOperator
 	// The write event is OneShot, then mark the writable to skip duplicate calling.
+	//  写事件只通知一次，标记成为可写 ，跳过重复 call
 	writable    bool
 	writeTicker chan error
 }
 
 // WaitWrite
 // TODO: implement - poll support timeout hung up.
+//  等待写的过程被唯一一次调用
 func (pd *pollDesc) WaitWrite(deadline time.Time) (err error) {
 	// if writable, check hup by select
 	if pd.writable {

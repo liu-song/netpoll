@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build dragonfly || freebsd || linux || netbsd || openbsd || darwin
 // +build dragonfly freebsd linux netbsd openbsd darwin
 
 package netpoll
@@ -26,11 +27,6 @@ import (
 func GetSysFdPairs() (r, w int) {
 	fds, _ := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	return fds[0], fds[1]
-}
-
-// setTCPNoDelay set the TCP_NODELAY flag on socket
-func setTCPNoDelay(fd int, b bool) (err error) {
-	return syscall.SetsockoptInt(fd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(b))
 }
 
 // Wrapper around the socket system call that marks the returned file
@@ -105,12 +101,4 @@ func iovecs(bs [][]byte, ivs []syscall.Iovec) (iovLen int) {
 		iovLen++
 	}
 	return iovLen
-}
-
-// Boolean to int.
-func boolint(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

@@ -22,15 +22,6 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 )
 
-var runTask = gopool.CtxGo
-
-func disableGopool() error {
-	runTask = func(ctx context.Context, f func()) {
-		go f()
-	}
-	return nil
-}
-
 // ------------------------------------ implement OnPrepare, OnRequest, CloseCallback ------------------------------------
 
 type gracefulExit interface {
@@ -109,7 +100,7 @@ func (c *connection) onRequest() (err error) {
 		// NOTE: loop processing, which is useful for streaming.
 		for c.Reader().Len() > 0 && c.IsActive() {
 			// Single request processing, blocking allowed.
-			handler(c.ctx, c)
+			handler(c.ctx, c) //  通过handler 对链接进行处理
 		}
 		// Handling callback if connection has been closed.
 		if !c.IsActive() {
@@ -125,7 +116,10 @@ func (c *connection) onRequest() (err error) {
 			goto START
 		}
 	}
-	runTask(c.ctx, task)
+	gopool.CtxGo(c.ctx, task) //  用到协程池进行处理的唯一接口 todo ， 而且当中运用了 context
+
+	//  对封装的业务的任务改如何理解比较好
+
 	return nil
 }
 

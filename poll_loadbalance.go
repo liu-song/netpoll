@@ -15,9 +15,8 @@
 package netpoll
 
 import (
+	"math/rand"
 	"sync/atomic"
-
-	"github.com/bytedance/gopkg/lang/fastrand"
 )
 
 // LoadBalance sets the load balancing method.
@@ -34,7 +33,7 @@ const (
 // loadbalance sets the load balancing method for []*polls
 type loadbalance interface {
 	LoadBalance() LoadBalance
-	// Choose the most qualified Poll
+	// Choose the most qualified Poll    // 选择最有资格的poll ？？？
 	Pick() (poll Poll)
 
 	Rebalance(polls []Poll)
@@ -64,8 +63,10 @@ func (b *randomLB) LoadBalance() LoadBalance {
 }
 
 func (b *randomLB) Pick() (poll Poll) {
-	idx := fastrand.Intn(b.pollSize)
+	idx := rand.Intn(b.pollSize) //  todo 这个测试是否可以优化一下 ，哈哈哈
 	return b.polls[idx]
+
+	// change rand.Intn to fastrand.Intn
 }
 
 func (b *randomLB) Rebalance(polls []Poll) {

@@ -23,6 +23,7 @@ import (
 	"time"
 )
 
+//  wrap into 把什么包装进什么
 // newServer wrap listener into server, quit will be invoked when server exit.
 func newServer(ln Listener, prepare OnPrepare, quit func(err error)) *server {
 	return &server{
@@ -32,23 +33,25 @@ func newServer(ln Listener, prepare OnPrepare, quit func(err error)) *server {
 	}
 }
 
+//  主 和 从 reactor 是如何划分的。。
 type server struct {
-	operator    FDOperator
-	ln          Listener
+	operator    FDOperator // 文件描述 对应的链表操作符
+	ln          Listener   //  Listener extends net.Listener, but supports getting the listener's fd.
 	prepare     OnPrepare
 	quit        func(err error)
-	connections sync.Map // key=fd, value=connection
+	connections sync.Map // key=fd, value=connection   //  对当前所有的链接进行存储
+
 }
 
 // Run this server.
 func (s *server) Run() (err error) {
-	s.operator = FDOperator{
-		FD:     s.ln.Fd(),
-		OnRead: s.OnRead,
+	s.operator = FDOperator{ //  server 的操作符
+		FD:     s.ln.Fd(), //   Listener的操作符。
+		OnRead: s.OnRead,  //   为什么只有read这个操作。
 		OnHup:  s.OnHup,
 	}
 	s.operator.poll = pollmanager.Pick()
-	err = s.operator.Control(PollReadable)
+	err = s.operator.Control(PollReadable) //  PollReadable  是一个常量
 	if err != nil {
 		s.quit(err)
 	}
@@ -95,7 +98,7 @@ func (s *server) Close(ctx context.Context) error {
 // OnRead implements FDOperator.
 func (s *server) OnRead(p Poll) error {
 	// accept socket
-	conn, err := s.ln.Accept()
+	conn, err := s.ln.Accept()    //  获取到对应的连接
 	if err != nil {
 		// shut down
 		if strings.Contains(err.Error(), "closed") {
@@ -111,11 +114,11 @@ func (s *server) OnRead(p Poll) error {
 	}
 	// store & register connection
 	var connection = &connection{}
-	connection.init(conn.(Conn), s.prepare)
+	connection.init(conn.(Conn), s.prepare)           //  初始化连接 ，并且是准备好的状态了
 	if !connection.IsActive() {
 		return nil
 	}
-	var fd = conn.(Conn).Fd()
+	var fd = conn.(Conn).Fd()                //  获得了链接对应的FD 状态，然后进行相应的删除
 	connection.AddCloseCallback(func(connection Connection) error {
 		s.connections.Delete(fd)
 		return nil

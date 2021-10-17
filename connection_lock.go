@@ -32,6 +32,7 @@ type key int32
 const (
 	closing key = iota
 	processing
+	reading
 	writing
 	inputBuffer
 	outputBuffer
@@ -43,6 +44,7 @@ type locker struct {
 	// keychain use for lock/unlock/stop operation by who.
 	// 0 means unlock, 1 means locked, 2 means stop.
 	keychain [total]int32
+	//  锁状态的数组 ，用起来的蛮好的。
 }
 
 func (l *locker) closeBy(w who) (success bool) {

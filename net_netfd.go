@@ -5,6 +5,7 @@
 // This file may have been modified by CloudWeGo authors. (“CloudWeGo Modifications”).
 // All CloudWeGo Modifications are Copyright 2021 CloudWeGo authors.
 
+//go:build aix || darwin || dragonfly || freebsd || linux || nacl || netbsd || openbsd || solaris
 // +build aix darwin dragonfly freebsd linux nacl netbsd openbsd solaris
 
 package netpoll
@@ -36,6 +37,7 @@ type netFD struct {
 	// This leads to a different behavior in register poller at after, so use this field to mark it.
 	pd *pollDesc
 	// closed marks whether fd has expired
+	//byte
 	closed uint32
 	// Whether this is a streaming descriptor, as opposed to a
 	// packet-based descriptor like a UDP socket. Immutable.
@@ -183,6 +185,7 @@ func (c *netFD) connect(ctx context.Context, la, ra syscall.Sockaddr) (rsa sysca
 		// SO_ERROR socket option to see if the connection
 		// succeeded or failed. See issue 7474 for further
 		// details.
+		//  早期的错误不会被忽略返回 ？
 		if err := c.pd.WaitWrite(deadline); err != nil {
 			select {
 			case <-ctx.Done():

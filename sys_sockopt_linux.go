@@ -21,5 +21,15 @@ func setDefaultSockopts(s, family, sotype int, ipv6only bool) error {
 	}
 
 	// Allow broadcast.
+
+	// 允许广播的情况发生
 	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(s, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1))
+}
+
+// Boolean to int.
+func boolint(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

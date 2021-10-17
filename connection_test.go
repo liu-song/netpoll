@@ -69,13 +69,10 @@ func TestConnectionRead(t *testing.T) {
 
 	var size = 256
 	var msg = make([]byte, size)
-	var wg sync.WaitGroup
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		for {
 			buf, err := rconn.Reader().Next(size)
-			if err != nil && errors.Is(err, ErrConnClosed) || !rconn.IsActive() {
+			if err != nil && errors.Is(err, ErrConnClosed) {
 				return
 			}
 			rconn.Reader().Release()
@@ -89,7 +86,6 @@ func TestConnectionRead(t *testing.T) {
 		Equal(t, n, len(msg))
 	}
 	rconn.Close()
-	wg.Wait()
 }
 
 func TestConnectionReadAfterClosed(t *testing.T) {
@@ -109,40 +105,6 @@ func TestConnectionReadAfterClosed(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	syscall.Write(w, msg)
 	syscall.Close(w)
-	wg.Wait()
-}
-
-func TestConnectionWaitReadHalfPacket(t *testing.T) {
-	r, w := GetSysFdPairs()
-	var rconn = &connection{}
-	rconn.init(&netFD{fd: r}, nil)
-	var size = pagesize * 2
-	var msg = make([]byte, size)
-
-	// write half packet
-	syscall.Write(w, msg[:size/2])
-	// wait poller reads buffer
-	for rconn.inputBuffer.Len() <= 0 {
-		runtime.Gosched()
-	}
-
-	// wait read full packet
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		var buf, err = rconn.Reader().Next(size)
-		Equal(t, atomic.LoadInt32(&rconn.waitReadSize), int32(0))
-		MustNil(t, err)
-		Equal(t, len(buf), size)
-	}()
-
-	// write left half packet
-	for atomic.LoadInt32(&rconn.waitReadSize) <= 0 {
-		runtime.Gosched()
-	}
-	Equal(t, atomic.LoadInt32(&rconn.waitReadSize), int32(size/2))
-	syscall.Write(w, msg[size/2:])
 	wg.Wait()
 }
 
@@ -199,32 +161,29 @@ func TestLargeBufferWrite(t *testing.T) {
 	MustNil(t, err)
 	rfd := <-trigger
 
+	conn.Writer().Malloc(2 * 1024 * 1024)
+	conn.Writer().Flush()
+
 	var wg sync.WaitGroup
 	wg.Add(1)
-	bufferSize := 2 * 1024 * 1024
-	//start large buffer writing
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 129; i++ {
-			_, err := conn.Writer().Malloc(bufferSize)
+		for i := 0; i < 128; i++ {
+			_, err := conn.Writer().Malloc(1024)
 			MustNil(t, err)
 			err = conn.Writer().Flush()
-			if i < 128 {
-				MustNil(t, err)
-			}
+			MustNil(t, err)
 		}
 	}()
-
-	time.Sleep(time.Millisecond * 50)
 	buf := make([]byte, 1024)
-	for i := 0; i < 128*bufferSize/1024; i++ {
+	for i := 0; i < 128; i++ {
 		_, err := syscall.Read(rfd, buf)
 		MustNil(t, err)
 	}
+	wg.Wait()
 	// close success
 	err = conn.Close()
 	MustNil(t, err)
-	wg.Wait()
 }
 
 // TestConnectionLargeMemory is used to verify the memory usage in the large package scenario.
@@ -266,18 +225,4 @@ func TestConnectionLargeMemory(t *testing.T) {
 	if alloc > limit {
 		panic(fmt.Sprintf("alloc[%d] out of memory %d", alloc, limit))
 	}
-}
-
-// TestSetTCPNoDelay is used to verify the connection initialization set the TCP_NODELAY correctly
-func TestSetTCPNoDelay(t *testing.T) {
-	fd, err := sysSocket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
-	conn := &connection{}
-	conn.init(&netFD{network: "tcp", fd: fd}, nil)
-
-	n, _ := syscall.GetsockoptInt(fd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY)
-	MustTrue(t, n > 0)
-	err = setTCPNoDelay(fd, false)
-	MustNil(t, err)
-	n, _ = syscall.GetsockoptInt(fd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY)
-	MustTrue(t, n == 0)
 }

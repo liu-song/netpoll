@@ -26,6 +26,8 @@ type CloseCallback func(connection Connection) error
 // Connection supports reading and writing simultaneously,
 // but does not support simultaneous reading or writing by multiple goroutines.
 // It maintains its own input/output buffer, and provides nocopy API for reading and writing.
+
+//  对于一条连接来说可以同时被 读和写实现  。 要明白这种同时读写的场景 。。
 type Connection interface {
 	// Connection extends net.Conn, just for interface compatibility.
 	// It's not recommended to use net.Conn API except for io.Closer.

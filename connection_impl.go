@@ -33,9 +33,8 @@ type connection struct {
 	operator        *FDOperator
 	readTimeout     time.Duration
 	readTimer       *time.Timer
-	readTrigger     chan struct{}
-	waitReadSize    int32
-	writeTrigger    chan error
+	readTrigger     chan int //  只有读触发事件
+	waitReadSize    int32    //  等待读触发的大小
 	inputBuffer     *LinkBuffer
 	outputBuffer    *LinkBuffer
 	inputBarrier    *barrier
@@ -55,6 +54,7 @@ func (c *connection) Reader() Reader {
 // Writer implements Connection.
 func (c *connection) Writer() Writer {
 	return c
+	//  todo 直接返回读和写是什么意思？？
 }
 
 // IsActive implements Connection.
@@ -79,7 +79,7 @@ func (c *connection) SetReadTimeout(timeout time.Duration) error {
 }
 
 // ------------------------------------------ implement zero-copy reader ------------------------------------------
-
+//  链接对Nocopy 也会实现一边
 // Next implements Connection.
 func (c *connection) Next(n int) (p []byte, err error) {
 	if err = c.waitRead(n); err != nil {
@@ -206,11 +206,14 @@ func (c *connection) WriteByte(b byte) (err error) {
 // ------------------------------------------ implement net.Conn ------------------------------------------
 
 // Read behavior is the same as net.Conn, it will return io.EOF if buffer is empty.
+
+//  todo 这个read 还是会被调用的
 func (c *connection) Read(p []byte) (n int, err error) {
 	l := len(p)
 	if l == 0 {
 		return 0, nil
 	}
+	//  todo waitRead 的作用是判断是否真的有数据可以等待去读 ？
 	if err = c.waitRead(1); err != nil {
 		return 0, err
 	}
@@ -240,6 +243,8 @@ func (c *connection) Close() error {
 
 // ------------------------------------------ private ------------------------------------------
 
+
+// 同样也是可以切换分支进行提交的
 var barrierPool = sync.Pool{
 	New: func() interface{} {
 		return &barrier{
@@ -258,17 +263,11 @@ func (c *connection) init(conn Conn, prepare OnPrepare) (err error) {
 	syscall.SetNonblock(c.fd, true)
 
 	// init buffer, barrier, finalizer
-	c.readTrigger = make(chan struct{}, 1)
-	c.writeTrigger = make(chan error, 1)
+	c.readTrigger = make(chan int, 1)
 	c.inputBuffer, c.outputBuffer = NewLinkBuffer(pagesize), NewLinkBuffer()
 	c.inputBarrier, c.outputBarrier = barrierPool.Get().(*barrier), barrierPool.Get().(*barrier)
 	c.setFinalizer()
 
-	// enable TCP_NODELAY by default
-	switch c.network {
-	case "tcp", "tcp4", "tcp6":
-		setTCPNoDelay(c.fd, true)
-	}
 	// check zero-copy
 	if setZeroCopy(c.fd) == nil && setBlockZeroCopySend(c.fd, defaultZeroCopyTimeoutSec, 0) == nil {
 		c.supportZeroCopy = true
@@ -298,10 +297,12 @@ func (c *connection) initFDOperator() {
 	// if connection has been registered, must reuse poll here.
 	if c.pd != nil && c.pd.operator != nil {
 		op.poll = c.pd.operator.poll
+		//  todo要明白这个重新赋值的操作
 	}
 	c.operator = op
 }
 
+//  链接 关闭的时候的一个操作
 func (c *connection) setFinalizer() {
 	c.AddCloseCallback(func(connection Connection) error {
 		c.netFD.Close()
@@ -311,27 +312,22 @@ func (c *connection) setFinalizer() {
 	})
 }
 
+//  这个的发送和接受  <-c.readTrigger   的区别
 func (c *connection) triggerRead() {
 	select {
-	case c.readTrigger <- struct{}{}:
-	default:
-	}
-}
-
-func (c *connection) triggerWrite(err error) {
-	select {
-	case c.writeTrigger <- err:
+	case c.readTrigger <- 0:
 	default:
 	}
 }
 
 // waitRead will wait full n bytes.
+
+// 水平触发和waitread 之间的联系
 func (c *connection) waitRead(n int) (err error) {
-	leftover := n - c.inputBuffer.Len()
-	if leftover <= 0 {
+	if c.inputBuffer.Len() >= n {
 		return nil
 	}
-	atomic.StoreInt32(&c.waitReadSize, int32(leftover))
+	atomic.StoreInt32(&c.waitReadSize, int32(n))
 	defer atomic.StoreInt32(&c.waitReadSize, 0)
 	if c.readTimeout > 0 {
 		return c.waitReadWithTimeout(n)
@@ -339,10 +335,11 @@ func (c *connection) waitRead(n int) (err error) {
 	// wait full n
 	for c.inputBuffer.Len() < n {
 		if c.IsActive() {
-			<-c.readTrigger
+			<-c.readTrigger // 只要链接是活跃的时候，虽然没有等到 小于N ，但还是会触发通知
 			continue
 		}
 		// confirm that fd is still valid.
+		//  确认当前FD 还是有效的
 		if atomic.LoadUint32(&c.netFD.closed) == 0 {
 			return c.fill(n)
 		}
@@ -390,14 +387,17 @@ func (c *connection) fill(need int) (err error) {
 	for {
 		n, err = readv(c.fd, c.inputs(c.inputBarrier.bs), c.inputBarrier.ivs)
 		c.inputAck(n)
+
+		//  为什么这里的循环是判断 N小于 pagesize
 		if n < pagesize || err != nil {
 			break
 		}
 	}
-	if c.inputBuffer.Len() >= need {
-		return nil
+	if c.inputBuffer.Len() >= need { // 这是是说明已经填充了需要的那么多数据了
+		return nil //  return  ni 会有什么效果
 	}
 	if err == nil {
+		//  这种情况说明是已经读完了？
 		err = Exception(ErrEOF, "")
 	}
 	return err

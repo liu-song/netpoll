@@ -24,6 +24,8 @@ import (
 
 // Trigger has been validated, but no usage for now.
 func TestPollTrigger(t *testing.T) {
+
+	// 测试  测试
 	t.Skip()
 	var trigger int
 	var stop = make(chan error)

@@ -20,6 +20,7 @@ import (
 	"testing"
 )
 
+//  错误测试用例需要注意下
 func TestErrno(t *testing.T) {
 	var err1 error = Exception(ErrConnClosed, "when next")
 	MustTrue(t, errors.Is(err1, ErrConnClosed))

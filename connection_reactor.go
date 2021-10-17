@@ -19,13 +19,15 @@ import (
 	"syscall"
 )
 
+//  connections 上面才有Reactor  ,分配和管理 。。。
 // ------------------------------------------ implement FDOperator ------------------------------------------
 
 // onHup means close by poller.
+
+// onHup的状态描述
 func (c *connection) onHup(p Poll) error {
 	if c.closeBy(poller) {
 		c.triggerRead()
-		c.triggerWrite(ErrConnClosed)
 		// It depends on closing by user if OnRequest is nil, otherwise it needs to be released actively.
 		// It can be confirmed that the OnRequest goroutine has been exited before closecallback executing,
 		// and it is safe to close the buffer at this time.
@@ -44,7 +46,6 @@ func (c *connection) onClose() error {
 			c.operator.Control(PollDetach)
 		}
 		c.triggerRead()
-		c.triggerWrite(ErrConnClosed)
 		c.closeCallback(true)
 		return nil
 	}
@@ -58,6 +59,7 @@ func (c *connection) onClose() error {
 
 // closeBuffer recycle input & output LinkBuffer.
 func (c *connection) closeBuffer() {
+	c.stop(reading)
 	c.stop(writing)
 	if c.lock(inputBuffer) {
 		c.inputBuffer.Close()
@@ -71,6 +73,10 @@ func (c *connection) closeBuffer() {
 
 // inputs implements FDOperator.
 func (c *connection) inputs(vs [][]byte) (rs [][]byte) {
+	if !c.lock(reading) {
+		return rs
+	}
+
 	n := int(atomic.LoadInt32(&c.waitReadSize))
 	if n <= pagesize {
 		return c.inputBuffer.Book(pagesize, vs)
@@ -88,9 +94,10 @@ func (c *connection) inputAck(n int) (err error) {
 	if n < 0 {
 		n = 0
 	}
-	leftover := atomic.AddInt32(&c.waitReadSize, int32(-n))
-	err = c.inputBuffer.BookAck(n, leftover <= 0)
-	c.triggerRead()
+	lack := atomic.AddInt32(&c.waitReadSize, int32(-n))
+	err = c.inputBuffer.BookAck(n, lack <= 0)
+	c.unlock(reading)
+	c.triggerRead()   //  todo 这种trigger 的机制可以全面的了解一下
 	c.onRequest()
 	return err
 }
@@ -124,26 +131,27 @@ func (c *connection) outputAck(n int) (err error) {
 }
 
 // rw2r removed the monitoring of write events.
+
+// 移除对写事件的监控 。。
 func (c *connection) rw2r() {
 	c.operator.Control(PollRW2R)
-	c.triggerWrite(nil)
+	// double check outputs is empty
+	if !c.outputBuffer.IsEmpty() {
+		go c.flush()
+	}
 }
 
 // flush write data directly.
 func (c *connection) flush() error {
-	if !c.lock(writing) {
+	if !c.lock(writing) { //  one connection  一条链接在写的时候不能直接flush write
 		return nil
 	}
-	locked := true
-	defer func() {
-		if locked {
-			c.unlock(writing)
-		}
-	}()
+	defer c.unlock(writing)
 	if c.outputBuffer.IsEmpty() {
 		return nil
 	}
 	// TODO: Let the upper layer pass in whether to use ZeroCopy.
+	// 让上层决定是否采用 ZeroCopy
 	var bs = c.outputBuffer.GetBytes(c.outputBarrier.bs)
 	var n, err = sendmsg(c.fd, bs, c.outputBarrier.ivs, false && c.supportZeroCopy)
 	if err != nil && err != syscall.EAGAIN {
@@ -164,9 +172,5 @@ func (c *connection) flush() error {
 	if err != nil {
 		return Exception(err, "when flush")
 	}
-
-	locked = false
-	c.unlock(writing)
-	err = <-c.writeTrigger
-	return err
+	return nil
 }

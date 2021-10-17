@@ -23,7 +23,8 @@ import (
 func TestPersistFDOperator(t *testing.T) {
 	// init
 	size := 1000
-	var ops = make([]*FDOperator, size)
+	//  https://www.jianshu.com/p/962f6c8cdeca   必须的，这个需要经过测试 。
+	var ops = make([]*FDOperator, size) //  通过指针实现的0 GC操作
 	for i := 0; i < size; i++ {
 		op := allocop()
 		op.FD = i

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !race
 // +build !race
 
 package netpoll
@@ -560,7 +561,6 @@ func (b *LinkBuffer) BookAck(n int, isEnd bool) (err error) {
 	for node := b.flush.next; node != nil; node = node.next {
 		node.off, node.malloc, node.refer, node.buf = 0, 0, 1, node.buf[:0]
 	}
-
 	// FIXME: The tail node must not be larger than 8KB to prevent Out Of Memory.
 	if isEnd && cap(b.flush.buf) > pagesize {
 		if b.flush.next == nil {
@@ -697,7 +697,7 @@ func (node *linkBufferNode) Release() (err error) {
 		}
 		node.buf = nil
 		linkedPool.Put(node)
-	}
+	} // 置为nil 之后的释放操作
 	return nil
 }
 

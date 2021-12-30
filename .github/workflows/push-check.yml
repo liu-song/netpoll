@@ -25,6 +25,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: typos-action
+        uses: crate-ci/typos@v1.2.1
+
       - name: Lint
         run: |
           test -z "$(gofmt -s -l .)"
